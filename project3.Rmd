@@ -1,0 +1,277 @@
+---
+title: "Sparsit??, Estimation et S??lection de Variables"
+author: "Evgenii Chzhen & Henry VONG"
+date: "10 november 2015"
+output:
+  pdf_document:
+    fig_crop: no
+    fig_height: 3.5
+    toc: yes
+  html_document:
+    toc: yes
+header-includes:
+- \usepackage{graphicx}
+- \usepackage{bbm}
+- \usepackage{mathtools}
+- \usepackage{amsthm}
+- \usepackage{amssymb}
+- \usepackage{amsmath}
+- \newcommand\myiid{\mathrel{\stackrel{\makebox[0pt]{\mbox{\normalfont\tiny i.i.d}}}{\sim}}}
+- \newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+bibliography: bibliography.bib
+---
+
+## Introduction
+
+We observe $y_1,...,y_M$ which satisfy the following model of gaussian sequence :  
+$$ y_j = a\eta_j + \xi_j; \,\,\, j=1,...,M; $$ 
+with $a \in \mathbb{R}$ and $\eta_j \in \{0, 1\}$ which are parametres chosen such that : 
+$$ \sum\limits_{j=1}^M = \Big[M^{1-\beta}\Big], \textrm{    for one fixed } \beta \in (0,1), $$
+where the random variables $\xi_j \myiid \mathbb{N}(0,1)$. We consider $M = 50$, $\beta = 0.3$ and $a \in [1, 4]$ and let $\tau = \sqrt{2logM}.$ 
+We want to apply the following estimator for given problem and compute $R(a)$ for $a \in [1, 4]$.
+
+
+
+```{r, echo=FALSE}
+sigma <- 0.2
+M = 50
+beta = 0.3
+n = 100
+tau = sqrt(2 * log(M, base = 2))
+# to simulate y
+simulateMyEtaKsi <- function(M, beta){
+  tmp = sample(1:M, floor(M ^ (1 - beta)), replace = FALSE)
+  ksi = rnorm(M, 0, 1)
+  eta = rep(0, times = M)
+  eta[tmp] = 1
+  return(list(eta, ksi))
+  }
+
+simulateMyVariable <- function(M, beta, alpha){
+  tmp = sample(1:M, floor(M ^ (1 - beta)), replace = FALSE)
+  ksi = rnorm(M, 0, 1)
+  eta = rep(0, times = M)
+  eta[tmp] = 1
+  y = alpha * eta + ksi
+  return(list(y, eta))
+  }
+
+
+myFirstEstimateur <- function(M, tau, y){
+  coeff = rep(0, times = M)
+  coeff[abs(y) > tau] = 1
+  return(y * coeff)
+}
+
+
+mySecondEstimateur <- function(M, tau, y){
+  coeff <- 1 - tau / abs(y)
+  coeff[coeff < 0] = 0
+  return(y * coeff)
+}
+
+
+myThirdEstimateur <- function(M, tau, y){
+  coeff <- 1 - tau ^ 2 / y ^ 2
+  coeff[coeff < 0] = 0
+  return(y * coeff)
+}
+
+myFourthEstimateur <- function(M, tau, y){
+  coeff = rep(0, times = M)
+  coeff[abs(y) >= tau] = 1
+  return(coeff)
+}
+
+myRisqueFunction <- function(a, thetahat, eta){
+  return(norm(thetahat - a * eta, type = '2'))
+}
+
+mySecondRisqueFunction <- function(etahat, eta){
+  tmp = abs(etahat - eta)
+  return(sum(tmp))
+}
+
+phiBasis <- function(j, x){
+    if(j == 1)
+      return(rep(1, times = length(x)))
+    if(j %% 2 == 0){
+      return(sqrt(2) * cos(2 * pi * (j / 2) * x))
+    } else {
+      return(sqrt(2) * sin(2 * pi * ((j - 1) / 2) * x))
+    }
+}
+
+computeZ <- function(N, X){
+  Z <- matrix(0, n, N)
+  for(j in 1:N){
+    Z[, j] <- phiBasis(j, X)
+  }
+  return(Z)
+}
+
+myFunction <- function(x){
+return(((x ^ 2) * (2 ^ (x - 1)) - (x - 0.5) ^ 3 ) * sin(10 * x))
+}
+
+```
+
+
+## 1. Estimation by hard threshold
+
+We define an estimator by hard threshold as it follows 
+$$ \hat{\theta}^H_j = y_j\mathbbm{I}(|y_j| > \tau), \,\,\, j=1,....,M,  $$
+
+and $R(a) = \norm{\hat{\theta}^H - a\eta}_2$.
+
+## 2. Estimation by soft threshold
+
+We define an estimator by soft threshold as it follows 
+$$ \hat{\theta}^S_j = y_j\Big(1 - \frac{\tau}{|y_j|}\Big)_+, \,\,\, j=1,....,M,  $$
+
+and $R(a) = \norm{\hat{\theta}^S - a\eta}_2$.
+
+## 3. Non-negative garrot
+
+We define an estimator by soft threshold as it follows 
+$$ \hat{\theta}^{NG}_j = y_j\Big(1 - \frac{\tau^2}{y_j^2}\Big)_+, \,\,\, j=1,....,M,  $$
+
+and $R(a) = \norm{\hat{\theta}^{NG} - a\eta}_2$.
+
+To understand the difference between the estimators we plot each of them for given $M$.
+
+```{r, echo=FALSE}
+hardTh <- function(x){ x * ifelse((abs(x) > tau), 1, 0) }
+softTh <- function(x){ x * ifelse((1-tau/abs(x)) > 0, 1-tau/abs(x), 0)  }
+ng <- function(x){ x * ifelse((1 - (tau^2) / (x^2)) > 0, 1 - (tau^2) / (x^2), 0)}
+plot(hardTh, -9, 9, main='Estimators', col='red', ylab='', xlab='')
+curve(ng, add=TRUE, col='blue')
+curve(softTh, add=TRUE, col='green')
+legend('topleft', c('Hard', 'Soft', 'NNG') , lty=1, col=c('red', 'green', 'blue'), bty='n', cex=.75)
+```
+
+## 4. Seclection of non zero coefficients
+
+We consider a selection of non zero coefficients of $(a\eta_j)_{j=1,...,M}$ by hard threshold :
+$$ \hat{\eta}_j = \mathbbm{I}(|y_j| \geq \sqrt{2logM}). $$
+
+And $R(a) = \sum\limits_{j=1}^M|\eta_j-\hat{\eta}_j|.$
+
+## 5. Plotting
+
+We plot $R(a)$ for each estimator.
+
+```{r, echo=FALSE, fig.height=4.5}
+a <- seq(1, 4, by = 0.01)
+T <- length(a)
+Rs1 <- c()
+Rs2 <- c()
+Rs3 <- c()
+Rs4 <- c()
+#tmp <- simulateMyEtaKsi(M, beta)
+#eta <- unlist(tmp[1], use.names = FALSE)
+#ksi <- unlist(tmp[2], use.names = FALSE)
+for(i in 1:T){
+  #y <- a[i] * eta + ksi
+  tmp <- simulateMyVariable(M, beta, a[i])
+  y <- unlist(tmp[1], use.names = FALSE)
+  eta <- unlist(tmp[2], use.names = FALSE)
+  thetahat1 <- myFirstEstimateur(M, tau, y)
+  Rs1[i] <- myRisqueFunction(a[i], thetahat1, eta)
+  thetahat2 <- mySecondEstimateur(M, tau, y)
+  Rs2[i] <- myRisqueFunction(a[i], thetahat2, eta)
+  thetahat3 <- myThirdEstimateur(M, tau, y)
+  Rs3[i] <- myRisqueFunction(a[i], thetahat3, eta)
+  etahat <- myFourthEstimateur(M, tau, y)
+  Rs4[i] <- mySecondRisqueFunction(etahat, eta)
+  }
+
+par(mfrow = c(2, 2))
+plot(a, Rs1, main = 'L\'estimateur par seuillage fort' ,xlab="a", ylab="R(a)", col = 'red', pch=20)
+plot(a, Rs2, main = 'L\'estimateur par seuillage faible', xlab="a", ylab="R(a)", col = 'green', pch=20)
+plot(a, Rs3, main = 'non-negative garrot' , xlab="a", ylab="R(a)", col = 'blue', pch=20)
+plot(a, Rs4, main = 'Selection of variables' , xlab="a", ylab="R(a)", col = 'purple', pch=20)
+```
+
+$\textbf{Corollary}$: One can see that $R(a)$ for the first three estimators is increasing, whenever $R(a)$ in case os selection a non-zero variables is decreasing. It can be explained in this way: with a growth of $a$ the difference between $a\eta_j + \xi_j$ and $\xi_j$ is increasing so it's easier to distinguish just a noise from a non-zero value with a noise therefore the risk is decreasing.
+
+## 6. Application for previous problem
+
+Consider a following model from TP2 : 
+$$ Y = \mathbb{X}\cdot \beta + \xi, $$
+we want to apply given estimators to this model. First step is to transform model from TP2 to model of gaussien sequence for this purpose we assume that $\textbf{X}^T\textbf{X}/n = I_N$ it allows us to rewrite the model as it follows, see for instance [@tsybakov08, pp. 68-69] :
+$$ \frac{1}{n}\mathbb{X}^TY = \beta + \frac{1}{n}\mathbb{X}^T\xi, $$
+introducing new notation one can obtain : 
+$$ z = \beta + \psi, $$
+where $z = \frac{1}{n}^T\mathbb{X}^TY$, $\psi \myiid \mathbb{N}\Big(0,\frac{1}{n^2}\mathbb{X}^T\mathbb{X}\Big) = \mathbb{N}\Big(0,\frac{1}{n^2}I_N\Big)$ and finally we apply hard threshold, soft threshold and non-negative garrot estimators to modified model with number of projections $N = 5$.
+
+Here is the results that we obtained
+
+```{r, echo=FALSE}
+X <- runif(n)
+ksi2 <- rnorm(n, 0, 1)
+Y <- myFunction(X) + sigma * ksi2
+N = 5
+# Y = Xmatr * theta + ksi
+Xmatr <- computeZ(N, X)
+m1 <- lm(Y ~ Xmatr - 1)
+# z = 1/n X^t Y = theta + psi
+z <- (1/n) * t(Xmatr) %*% Y
+est1 <- myFirstEstimateur(M = N, tau = sigma * sqrt(2 * log(N) / n), y = z)
+est2 <- mySecondEstimateur(M = N, tau = sigma * sqrt(2 * log(N) / n), y = z)
+est3 <- myThirdEstimateur(M = N, tau = sigma * sqrt(2 * log(N) / n), y = z)
+# par(mfrow = c(2, 2))
+# qqnorm(resid(m1), main = 'Linear regression')
+# qqnorm(Y - Xmatr %*% est1, main = 'L\'estimateur par seuillage fort')
+# qqnorm(Y - Xmatr %*% est2, main = 'L\'estimateur par seuillage faible')
+# qqnorm(Y - Xmatr %*% est3, main = 'non-negative garrot')
+```
+
+
+```{r, echo=FALSE}
+# par(mfrow = c(2, 2))
+# plot(fitted(m1), residuals(m1),
+#  xlab="Predicted scores", ylab="Residuals", main = 'Linear regression')
+# plot(Xmatr %*% est1, Y - Xmatr %*% est1,
+#  xlab="Predicted scores", ylab="Residuals", main = 'L\'estimateur par seuillage fort')
+# plot(Xmatr %*% est2, Y - Xmatr %*% est2,
+#  xlab="Predicted scores", ylab="Residuals", main = 'L\'estimateur par seuillage faible')
+# plot(Xmatr %*% est3, Y - Xmatr %*% est3,
+#  xlab="Predicted scores", ylab="Residuals", main = 'non-negative garrot')
+
+```
+
+
+  Coefficients |Linear regression        | seuillage fort| seuillage faible | non-negative garrot
+-------------- | ------------------------| --------------| -----------------| -------------------
+$\beta_1$      |`r m1$coefficients[1]  ` | `r est1[1]  ` | `r est2[1]  `    | `r est3[1]  `  
+$\beta_2$      |`r m1$coefficients[2]  ` | `r est1[2]  ` | `r est2[2]  `    | `r est3[2]  `  
+$\beta_3$      |`r m1$coefficients[3]  ` | `r est1[3]  ` | `r est2[3]  `    | `r est3[3]  `  
+$\beta_4$      |`r m1$coefficients[4]  ` | `r est1[4]  ` | `r est2[4]  `    | `r est3[4]  `  
+$\beta_5$      |`r m1$coefficients[5]  ` | `r est1[5]  ` | `r est2[5]  `    | `r est3[5]  `  
+
+We plot all the results to compare estimators visually
+
+```{r, echo=FALSE}
+net <- seq(0, 1, by = 0.001)
+giveMeFunction <- function(beta){
+  fhat2 <- rep(0, times = length(net))
+  for(i in 1:length(net)){
+      for(j in 1:N){
+        fhat2[i] <- fhat2[i] + beta[j] * phiBasis(j, net[i])
+      }
+  }
+  return(fhat2)
+}
+par(mfrow = c(1, 1))
+plot(net, giveMeFunction(m1$coefficients), main = 'Results', type = "l", col = 'red', xlab="x", ylab="f(x)", ylim = c(-0.4, 1), xlim = c(0, 1))
+lines(net, giveMeFunction(est1), type = "l", col = 'darkgreen')
+lines(net, giveMeFunction(est2), type = "l", col = 'blue')
+lines(net, giveMeFunction(est3), type = "l", col = 'yellow')
+curve((x ^ 2 * 2 ^ (x - 1) - (x - 0.5) ^ 3 ) * sin(10 * x), 0, 1, n = 500, add = TRUE, col = 'black')
+legend('topleft', c('Real', 'Least square', 'Hard Threshold', 'Soft Threshold', 'N-N garrot') , lty=1, col=c('black','red','darkgreen','blue', 'yellow'), bty='n', cex=.75)
+```
+
+$\textbf{Corollary}$: One can see that the difference between all estimators visually is not critical, however least square estimator is more computationaly complicated therefore for the given problem we would recommend to use threshold estimators.
+
+## References

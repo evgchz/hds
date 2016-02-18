@@ -1,0 +1,252 @@
+---
+title: 'TP 2 : Estimation de la R??gression'
+author: "Evgenii Chzhen & Henry VONG"
+date: "27 october 2015"
+output:
+  pdf_document:
+    fig_crop: no
+    fig_height: 3.5
+    toc: yes
+  html_document:
+    toc: yes
+header-includes:
+- \usepackage{graphicx}
+- \usepackage{mathtools}
+- \usepackage{amsthm}
+- \usepackage{amssymb}
+- \usepackage{amsmath}
+bibliography: bibliography.bib
+---
+
+## Introduction
+We simulate n = 100 couples of independent random variables $(X_i, Y_i),\,\,\, i=1,..., n$ where a sequence: $X_1,..., X_n$ is i.i.d uniformly distributed on the interval $[0, 1]$, $\xi_1,..., \xi_n$ are i.i.d random variables from standart gaussian distribution and $$Y_i = f(X_i) + \sigma * \xi_i,\,\,\,\sigma = 0.2$$ and $$f(x) = (x^22^{x-1}-(x-0.5)^3)sin(10x)$$
+
+```{r, echo=FALSE, cache=FALSE}
+n <- 100
+sigma <- 0.2
+net <- seq(0, 1, by = 0.001)
+#calculate trigonometric basis
+phiBasis <- function(j, x){
+    if(j == 1)
+      return(rep(1, times = length(x)))
+    if(j %% 2 == 0){
+      return(sqrt(2) * cos(2 * pi * (j / 2) * x))
+    } else {
+      return(sqrt(2) * sin(2 * pi * ((j - 1) / 2) * x))
+    }
+}
+
+#calculate function f(X)
+myFunction <- function(x){
+return(((x ^ 2) * (2 ^ (x - 1)) - (x - 0.5) ^ 3 ) * sin(10 * x))
+}
+
+#calculate theta hat
+thetaHat <- function(Y, X, j){
+  Z <- Y * phiBasis(j, X)
+  return(mean(Z))
+}
+
+#calculate matrix Xbold = (Z_1, ..., Z_N)
+computeZ <- function(N, X){
+  Z <- matrix(0, n, N)
+  for(j in 1:N){
+    Z[, j] <- phiBasis(j, X)
+  }
+  return(Z)
+}
+
+#compute beta hat
+computeBeta <- function(Y, Z){
+  model <- lm(Y ~ Z - 1)
+  beta <- coef(model) 
+  sigma <- (summary(model)$sigma)
+  return(list(beta, sigma))
+}
+
+#this function is for 6th part
+computeLoss <- function(N, X, Y, n, sigmaestimated50){
+  Z <- computeZ(N, X)
+  betahat <-  unlist(computeBeta(Y, Z)[1], use.names = FALSE)
+  sigmahat <- unlist(computeBeta(Y, Z)[2], use.names = FALSE)
+  tmp <- Y - Z %*% betahat
+  return( (1/n) * norm(tmp, type = '2')^2 + (2 * N / n)  * sigmaestimated50^2 )
+}
+
+
+#
+
+computeMyEstimation <- function(N, X, Y){
+  Z <- computeZ(N, X)
+  beta <- unlist(computeBeta(Y, Z)[1], use.names = FALSE)
+  par(mfrow = c(1, 1))
+  fhat2 <- rep(0, times = length(net))
+  for(i in 1:length(net)){
+      for(j in 1:N){
+        fhat2[i] <- fhat2[i] + beta[j] * phiBasis(j, net[i])
+      }
+    }
+  return(fhat2)
+}
+#Draw graph with real function and approximated
+drawMyEstimation <- function(fhat2, colEstimator, colRealFunction, main, triger=TRUE){
+  if(triger){
+    plot(net, fhat2, main = main, type = "l", col = colEstimator, xlab="X", ylab="Real and Estimated", ylim = c(-0.4, 1), xlim = c(0, 1))
+    curve((x ^ 2 * 2 ^ (x - 1) - (x - 0.5) ^ 3 ) * sin(10 * x), 0, 1, n = 500, add = TRUE, col = colRealFunction)
+    legend('topright', c('Estimated', 'Real') , lty=1, col=c(colEstimator, colRealFunction), bty='n', cex=.75)
+  }
+  else{
+    plot(net, fhat2, main = main, type = "l", col = colEstimator, xlab="X", ylab="Real and Estimated", ylim = c(-0.4, 1), xlim = c(0, 1))
+    curve((x ^ 2 * 2 ^ (x - 1) - (x - 0.5) ^ 3 ) * sin(10 * x), 0, 1, n = 500, add = TRUE, col = colRealFunction)
+    legend('topleft', c('Lin Reg', 'Real', 'Proj') , lty=1, col=c(colEstimator, colRealFunction, 'blue'), bty='n', cex=.75)
+  }
+}
+```
+
+
+```{r, echo=FALSE, cache=FALSE}
+X <- runif(n)
+ksi <- rnorm(n, 0, 1)
+Y <- myFunction(X) + sigma * ksi
+```
+
+## 1. Visualization
+
+We plot a cloud of $(X_i, Y_i),\,\, i=1,...,n$ and the real function $f$ on $[0,1]$
+
+```{r, echo=FALSE}
+plot(X, Y, main = 'simulated variable VS real function')
+curve((x ^ 2 * 2 ^ (x - 1) - (x - 0.5) ^ 3 ) * sin(10 * x), 0, 1, n = 500, add = TRUE, col = "red")
+```
+
+## 2. Estimator by projection. Influence of N.
+
+We consider a trigonometric base $\{\varphi_j\}_{j\geq 1}$ on the interval $[0,1]$:
+$$\varphi_1(x) \equiv 1,$$
+$$\varphi_{2k} = \sqrt{2}\cos{2\pi kx},$$
+$$\varphi_{2k+1} = \sqrt{2}\sin{2\pi kx},\,\,\, k=1,2,...,$$
+calculate estimators of Fourier coefficients :
+$$ \hat{\theta}_j = \frac{1}{n}\sum\limits_{i=1}^{n}Y_i\varphi_j(X_i),\textrm{    for } j=1,..., 50.  $$ 
+After we consider an estimator by projection as it follows :
+$$ \hat{f}_{n,N} = \sum\limits_{j=1}^{N}\hat{\theta}_j\varphi_j(x), \textrm{    for } N \in \{5, 10, 15, 20, 30, 40, 50, 60\} $$
+
+```{r, echo=FALSE}
+numProj <- 60
+thetahat <- c(numProj)
+for(j in 1:numProj){
+  thetahat[j] <- thetaHat(Y, X, j)
+}
+fhat <- matrix(0, length(net), 8)
+k <- 0
+for(N in c(5, 10, 15, 20, 30, 40, 50, 60)){
+  k <- k + 1
+  for(i in 1:length(net)){
+    for(j in 1:N){
+      fhat[i, k] <- fhat[i, k] + thetahat[j] * phiBasis(j, net[i])
+    }
+  }
+}
+```
+
+
+```{r, echo=FALSE}
+par(mfrow = c(1, 2))
+drawMyEstimation(fhat[, 1], 'blue', 'black', 'N = 5')
+drawMyEstimation(fhat[, 2], 'green', 'black', 'N = 10')
+par(mfrow = c(1, 2))
+drawMyEstimation(fhat[, 3], 'yellow', 'black', 'N = 15')
+drawMyEstimation(fhat[, 4], 'cyan', 'black', 'N = 20')
+par(mfrow = c(1, 2))
+drawMyEstimation(fhat[, 5], 'orange', 'black', 'N = 30')
+drawMyEstimation(fhat[, 6], 'purple', 'black', 'N = 40')
+par(mfrow = c(1, 2))
+drawMyEstimation(fhat[, 7], 'red', 'black', 'N = 50')
+drawMyEstimation(fhat[, 8], 'gray', 'black', 'N = 60')
+```
+
+$\textbf{Corollary}$:One can notice that N = 5 and N = 10 are visualy more appropriate. The problem with a big numbers of $N$ is that we overfit our estimator since we use too many projections.
+
+## 3. Regression and Visualization of estimated function.
+
+We consider $Z_j = (\varphi_j(X_1),...,\varphi_j(X_n))^T$, we estimate $\beta = (\beta_1, ..., \beta_N)$ using a following linear model :
+$$Y=\beta_1\cdot Z_1 + ... + \beta_N \cdot Z_N + \xi$$
+We plot two different estimator $\hat{f}_{n,N}$ and $\tilde{f}_{n,N} = \sum\limits_{j=1}^{N}\hat{\beta}_j\varphi_j(x)$, for $N = 5$
+
+```{r, echo=FALSE}
+drawMyEstimation(computeMyEstimation(5, X, Y), 'red', 'black', 'N = 5', triger=FALSE)
+lines(net, fhat[, 1], type = "l", col = 'blue', ylim = c(-0.4, 1), xlim = c(0, 1))
+```
+
+## 4. Theory
+We note $\textbf{X} = (Z_1,...,Z_N)$.
+If  $\textbf{X}^T\textbf{X}/n = I_N$, therefore   $\hat{\beta}_j = \Big((\textbf{X}^T\textbf{X})^{-1}\textbf{X}^TY\Big)_j = \frac{1}{n}\Big(\textbf{X}^TY\Big)_j = \hat{\theta}_j$ and finally $\tilde{f}_{n,N} = \hat{f}_{n,N}$.
+
+## 5. Variance
+
+
+
+```{r, echo=FALSE}
+N <- 50
+Z <- matrix(0, n, N)
+for(j in 1:N){
+  Z[, j] <- phiBasis(j, X)
+}
+model <- lm(Y ~ Z - 1)
+beta <- coef(model)
+par(mfrow = c(1, 1))
+fhat2 <- rep(0, times = length(net))
+ for(i in 1:length(net)){
+    for(j in 1:N){
+      fhat2[i] <- fhat2[i] + beta[1] * phiBasis(j, net[i])
+    }
+  }
+sigmaestimated50 = summary(model)$sigma
+```
+ 
+For N = 50 estimated value of $\sigma^2=0.04$ is $\hat{\sigma}^2 =$ `r (summary(model)$sigma)^2`
+
+## 6. Minimization
+
+We observe an emperic loss of the estimator and obtain optimal $N$ by minimization, see for instance [@tsybakov08, pp. 59-61].
+$$ \hat{N} = \arg\!\min_{N=1,...,50} \Big(||Y-\textbf{X}\cdot\hat{\beta}||^2 - (n-2N)\hat{\sigma}^2\Big) $$
+
+```{r, echo=FALSE}
+Nvect <- rep(0, times = 50)
+for(j in 1:50){
+  Nvect[j] <- computeLoss(j, X, Y, n, sigmaestimated50)
+}
+```
+
+We obtained that the optimal value is $\hat{N}$ =  `r which.min(Nvect)`.
+
+
+## 7. Visualization for optimal $\hat{N}$ =  `r which.min(Nvect)`
+
+We compute estimation for obtained $\hat{N}$.
+
+```{r, echo=FALSE}
+drawMyEstimation(computeMyEstimation(which.min(Nvect), X, Y), 'green', 'black', 'Optimal N')
+```
+
+
+## 8. Histogramm for $\hat{N}$'s
+
+In this section we consider $M = 100$ simulations of $n = 100$ observations from given function, for each simulation we find an optimal $\hat{N}_i$ for all $i = 1,..., M$. We look at the histogramm of $\hat{N}_i$ for all $i = 1,..., M$.
+
+```{r, echo=FALSE, cache=TRUE}
+M = 100
+Nhat <- rep(0, times = 100)
+for(i in 1:M){
+  X <- runif(n)
+  ksi <- rnorm(n, 0, 1)
+  Y <- myFunction(X) + sigma * ksi
+  Nvect <- rep(0, times = 50)
+  for(j in 1:50) Nvect[j] <- computeLoss(j, X, Y, n, sigmaestimated50)
+  Nhat[i] = which.min(Nvect)
+}
+hist(Nhat)
+```
+
+$\textbf{Corollary}$: One can notice that values of N between 5 and 12 are working in most cases. 
+
+## References

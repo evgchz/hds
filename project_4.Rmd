@@ -1,0 +1,244 @@
+---
+title: |
+  | Sparsit??, Estimation et S??lection de Variables
+  | LASSO, Ridge et Elastic Net
+author: "Evgenii Chzhen & Henry VONG"
+date: "24 november 2015."
+output:
+  pdf_document:
+    fig_crop: no
+    fig_height: 3.5
+    toc: yes
+  html_document:
+    toc: yes
+header-includes:
+- \usepackage{graphicx}
+- \usepackage{bbm}
+- \usepackage{mathtools}
+- \usepackage{amsthm}
+- \usepackage{amssymb}
+- \usepackage{amsmath}
+- \newcommand\myiid{\mathrel{\stackrel{\makebox[0pt]{\mbox{\normalfont\tiny i.i.d}}}{\sim}}}
+- \newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+bibliography: bibliography.bib
+---
+## Introduction
+Consider the following linear model :
+$$ Y = X\beta+\eta, $$
+where $\eta \myiid \mathbb{N}(0, I_n)$, $\beta \in \mathbb{R}^p$ and $X_{.,i}$ are i.i.d. standart gaussian vectors for each $i \in {1,...,p}$. We study three estimators which are defined as it follows :
+
+1. $\textbf{LASSO}$
+$$ \hat{\beta}^L = \arg\!\min_{\beta}\Big[\frac{1}{2n}\sum\limits_{i=1}^n(Y_i - X_{i,.}\beta)^2 + \lambda\sum\limits_{j=1}^p|\beta_j|\Big], $$
+for $\lambda > 0$
+2. $\textbf{Ridge}$
+$$ \hat{\beta}^R = \arg\!\min_{\beta}\Big[\frac{1}{2n}\sum\limits_{i=1}^n(Y_i - X_{i,.}\beta)^2 + \frac{\mu}{2}\norm{\beta}_2\Big], $$
+for $\mu > 0$
+3. $\textbf{Elastic net}$
+$$ \hat{\beta}^{EN} = \arg\!\min_{\beta}\Big[\frac{1}{2n}\sum\limits_{i=1}^n(Y_i - X_{i,.}\beta)^2 + \lambda\Big(\frac{1-\alpha}{2}\norm{\beta}_2 +\alpha\sum\limits_{j=1}^p|\beta_j|\Big)\Big], $$
+for $\lambda > 0$ and $\alpha \in [0, 1]$. One can notice that $\alpha = 0$ is equivalent to Ridge and $\alpha = 1$ is equivalent to LASSO.
+
+For more details and theoretical background behind theese methodes see ([@tsybakov08, pp. 59], [@zouhastie05, pp. 301-307], [@zouhastietibsharani05]).
+
+## 1. First dataset
+
+Consider the following linear model :
+$$ Y = X\beta+\eta, $$
+where $\eta \myiid \mathbb{N}(0, I_n)$, $\beta \in \mathbb{R}^p$ and $X_{.,i}$ are i.i.d. standart gaussian vectors for each $i \in {1,...,p}$. We put $n = 1000$, $p = 5000$,
+$$ \beta_1 = ... = \beta_{15} = 1,$$
+$$ \beta_{16} = ... = \beta_{5000} = 0.$$
+
+For each value of $\alpha \in \{0, 0.1, 0.2, ..., 0.9, 1\}$ we compute $\lambda_{1se}$ by cross validation, where $\lambda_{1se}$ largest value of $\lambda$ such that error is within 1 standard error of the minimum. To choose an optimal $\alpha$ we separate our dataset on 2 groups namely train set and test set, after fitting a single model on train set we compute MSE on test set and choose $\alpha$ which corresponds to the minimal value of error.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(glmnet)
+library(MASS)
+library(Matrix)
+library(foreach)
+nonzero = 15
+n <- 1000
+p <- 5000
+mu <- rep(0, n)
+eta <- mvrnorm(1, mu, diag(n))
+beta <- rep(0, p)
+beta[1:nonzero] = 1
+X <- t(mvrnorm(p, mu, diag(n)))
+Y <- X %*% beta + eta
+Y_train <- Y[1:660]
+Y_test <- Y[661:1000]
+X_train <- X[1:660,]
+X_test <- X[661:1000,]
+alpha <- seq(0, 1, by = 0.1)
+sayDecision <- function(alpha){
+  if(alpha == 1) return('LASSO')
+  else if(alpha == 0) return("Ridge")
+  else return("Elastic net")
+}
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mses1 <- c()
+for(i in 1:length(alpha)){
+  cv <- cv.glmnet(X_train, Y_train, type.measure='mse', alpha=alpha[i], family='gaussian')
+  model <- glmnet(X_train, Y_train, family='gaussian', alpha=alpha[i], lambda=cv$lambda.1se)
+  mses1[i] <- mean((predict(model, X_test) - Y_test)^2)
+}
+```
+
+Coefficients path and a plot of cross-validated MSE in case of LASSO
+
+```{r, echo=FALSE}
+par(mfrow = c(1, 2))
+model <- glmnet(X_train, Y_train, family='gaussian', alpha=1)
+cv <- cv.glmnet(X_train, Y_train, type.measure='mse', alpha=1, family='gaussian')
+plot(model, xvar='lambda')
+plot(cv)
+```
+
+
+$\textbf{Corollary}$: One can see on left plot that LASSO is able to zero out a coefficients. As Lambda increases, MSE increases rapidly. The coefficients are reduced too much and they do not adequately fit the responses.
+
+$\pagebreak$ 
+
+Obtained errors on testing set :
+
+```{r, echo=FALSE}
+barplot(mses1, names.arg=c('0','0.1','0.2','0.3','0.4','0.5','0.6','0.7','0.8','0.9','1'), col=c("green","red"), ylab='MSE', xlab = "alpha")
+abline(h = mses1[which(mses1 == min(mses1))], col = "black")
+```
+
+
+
+One can see that the best is alpha = `r alpha[which(mses1 == min(mses1))]  `, which is equivalent to `r sayDecision(alpha[which(mses1 == min(mses1))])`.
+
+## 2. Second dataset
+Consider the following linear model :
+$$ Y = X\beta+\eta, $$
+where $\eta \myiid \mathbb{N}(0, I_n)$, $\beta \in \mathbb{R}^p$ and $X_{.,i}$ are i.i.d. standart gaussian vectors for each $i \in {1,...,p}$. We put $n = 1000$, $p = 5000$,
+$$ \beta_1 = ... = \beta_{1500} = 1,$$
+$$ \beta_{1501} = ... = \beta_{5000} = 0.$$
+
+We proceed the same procedure to choose best value of $\alpha$.
+
+```{r,echo=FALSE, cache=TRUE}
+nonzero = 1500
+n <- 1000
+p <- 5000
+mu <- rep(0, n)
+eta <- mvrnorm(1, mu, diag(n))
+beta <- rep(0, p)
+beta[1:nonzero] = 1
+X <- t(mvrnorm(p, mu, diag(n)))
+Y <- X %*% beta + eta
+Y_train <- Y[1:660]
+Y_test <- Y[661:1000]
+X_train <- X[1:660,]
+X_test <- X[661:1000,]
+```
+
+
+```{r, echo=FALSE, cache=TRUE, message=FALSE}
+mses2 <- c()
+for(i in 1:length(alpha)){
+  cv <- cv.glmnet(X_train, Y_train, type.measure='mse', alpha=alpha[i], family='gaussian')
+  model <- glmnet(X_train, Y_train, family='gaussian', alpha=alpha[i], lambda=cv$lambda.lse)
+  mses2[i] <- mean((predict(model, X_test) - Y_test)^2)
+}
+```
+
+$\pagebreak$ 
+
+Coefficients path in case of RIDGE
+
+```{r, echo=FALSE}
+model <- glmnet(X_train, Y_train, family='gaussian', alpha=0)
+plot(model, xvar='lambda')
+```
+
+$\textbf{Corollary}$: One can see on left plot that Ridge can't shrink coefficients so you include in final model all the coefficients or none of them. 
+
+Errors on testing set :
+
+```{r, echo=FALSE}
+barplot(mses2, names.arg=c('0','0.1','0.2','0.3','0.4','0.5','0.6','0.7','0.8','0.9','1'), col=c("green","red"), ylab='MSE', xlab = "alpha")
+abline(h = mses2[which(mses2 == min(mses2))], col = "black")
+```
+
+One can see that the best is alpha = `r alpha[which(mses2 == min(mses2))]  `, which is equivalent to `r sayDecision(alpha[which(mses2 == min(mses2))])`.
+
+## 3. Third dataset
+
+Consider the following linear model :
+$$ Y = X\beta+\eta, $$
+where $\eta \myiid \mathbb{N}(0, I_n)$, $\beta \in \mathbb{R}^p$ and $X_{.,i} \myiid \mathbb{N}\Big(0, \Sigma\Big)$ vectors for each $i \in {1,...,p}$, where $\Sigma_{pk} = 0.7$ if $k\neq p$  and $\Sigma_{ii} = 1$. We put $n = 100$, $p = 50$,
+$$ \beta_1  = \beta_{2} = 10,$$
+$$ \beta_{3} = \beta_{4} = 5,$$
+$$ \beta_{5} =...=\beta_{14} = 1,$$
+$$ \beta_{15} =...=\beta_{50} = 0.$$
+
+We proceed the same procedure to choose best value of $\alpha$.
+
+```{r,echo=FALSE, cache=TRUE}
+n <- 100
+p <- 50
+mu <- rep(0, n)
+eta <- mvrnorm(1, mu, diag(n))
+beta <- rep(0, p)
+beta[1:2] = 10
+beta[3:5] = 5
+beta[5:14] = 1
+cov <- matrix(0, n, n)
+for(i in 1:n){
+ for(j in 1:n){
+   cov[i,j] = 0.7
+ }
+}
+cov <- cov + 0.3*diag(n)
+X <- t(mvrnorm(p, mu, cov))
+Y <- X %*% beta + eta
+Y_train <- Y[1:66]
+Y_test <- Y[67:100]
+X_train <- X[1:66,]
+X_test <- X[67:100,]
+```
+
+
+```{r, echo=FALSE, cache=TRUE}
+mses3 <- c()
+for(i in 1:length(alpha)){
+  cv <- cv.glmnet(X_train, Y_train, type.measure='mse', alpha=alpha[i], family='gaussian')
+  model <- glmnet(X_train, Y_train, family='gaussian', alpha=alpha[i], lambda=cv$lambda.min)
+  mses3[i] <- mean((predict(model, X_test) - Y_test)^2)
+}
+```
+
+Coefficients path and a plot of cross-validated MSE in case of Elastic Net (0.5)
+
+```{r, echo=FALSE}
+par(mfrow = c(1, 2))
+model <- glmnet(X_train, Y_train, family='gaussian', alpha=0.5)
+cv <- cv.glmnet(X_train, Y_train, type.measure='mse', alpha=0.5, family='gaussian')
+plot(model, xvar='lambda')
+plot(cv)
+```
+
+$\textbf{Corollary}$: We can notice almost the same behaviour as in case of LASSO.
+
+$\pagebreak$
+
+Errors on testing set :
+
+```{r, echo=FALSE}
+barplot(mses3, names.arg=c('0','0.1','0.2','0.3','0.4','0.5','0.6','0.7','0.8','0.9','1'), col=c("green","red"), ylab='MSE', xlab = "alpha")
+abline(h = mses3[which(mses3 == min(mses3))], col = "black")
+```
+
+one can notice that the best alpha = `r alpha[which(mses3 == min(mses3))]  `, which is equivalent to `r sayDecision(alpha[which(mses3 == min(mses3))])`.
+
+## Corollary
+
+One can notice that LASSO is working good in a very sparse situations, whenever RIDGE regression is working in less sparse cases, since Ridge can't zero out coefficients; thus, one either end up including all the coefficients in the model, or none of them (however the ridge regression will penalize our coefficients, such that those who are the least efficient in our estimation will "shrink" the fastest.). The model of Elastic Net is appropriate when the variables are highly correlated. Theese results are in high agreement with a previous expiriments and theoretical results, see for instance [@zouhastie05, pp. 301-307].
+
+## References
+
