@@ -1,0 +1,174 @@
+---
+title: 'TP1 : Estimation de la Densit&#233;'
+author: 'Evgenii Chzhen & VONG Henry '
+date: "13 october 2015"
+output:
+  pdf_document:
+    fig_crop: no
+    fig_height: 3.5
+    toc: yes
+  html_document:
+    theme: cosmo
+    toc: yes
+header-includes:
+- \usepackage{graphicx}
+- \usepackage{bbm}
+- \usepackage{mathtools}
+- \usepackage{amsthm}
+- \usepackage{amssymb}
+- \usepackage{amsmath}
+bibliography: bibliography.bib
+---
+## Introduction
+
+We consider a random variables $X$ with the following density function : $$ p(x) = \frac{1}{2\sqrt{2\pi}}e^{-\frac{(x+1)^2}{2}} + \frac{1}{2}\mathbbm{1}_{[1,2](x)}. $$ 
+We simulate $n = 1000$ obsevation of variable $X$ from given density.
+
+## 1. Influence of choice of m parametr in histogramm  
+
+I this section we study estimation of a density function by histogramm. This methods can be represented as it follows: take a support of the density $p(x) \in [-M, M]$ and a parametr $m > 0$, consider following intervals $C_j = [\frac{(j-1)2M}{m}, \frac{j2M}{m}]$ for $j \in \{1,...,m\}$ and compute the following estimation $$ \tilde{p}_{n,m}(x) = \frac{m}{2M}\sum\limits_{j=1}^m\Big[\mathbbm{1}_{C_j}(x)\frac{1}{n}\sum\limits_{k=1}^n\mathbbm{1}_{C_j}(X_k)\Big]. $$ We use different values of $m$ to understand how it influences the estimation. 
+
+```{r, echo = FALSE, fig.height=2.5, cache=TRUE}
+N = 1000
+U = runif(N)
+Z = c()
+for(i in 1:N) {
+  if(U[i] > .5){
+    Z[i] = runif(1, 1, 2)
+  }
+  else {
+    Z[i] = rnorm(1, -1, 1)
+  }
+} 
+par(mfrow = c(1, 2))
+hist(Z, breaks=2, main='m=2')
+hist(Z, breaks=10, main='m=10')
+par(mfrow = c(1, 2))
+hist(Z, breaks=40, main='m=40')
+hist(Z, breaks=161, main='m=161')
+
+```
+
+```{r, echo = FALSE, fig.height=2.5, cache=TRUE}
+myDensity <- function(x){ (1 / (2 * sqrt(2 * pi))) * exp(-(x + 1)^2 / 2) + (1 / 2) * ifelse((x>=1 & x<=2), 1, 0) }
+```
+
+
+$\textbf{Corollary}$: It can de seen that small values are useless as well as large one. With small values we have lack of information and with large we overdefine our density. One can see that $10\leq m \leq40$ are visually quiet good.
+
+## 2. Influence of the choice of the kernel
+
+Now we consider a kernel density estimator which can be represented as it follows : $$ \hat{p}_n(x) = \frac{1}{nh}\sum\limits_{k=1}^nK\Big(\frac{x-X_k}{h}\Big),\,\,\, x\in \mathbb{R}. $$ In this section we test 4 different kernels:
+
+Type of Kernel      |         Kernel function
+--------------------|----------------------------
+Epanechnikov        | $K(u) = \frac{3}{4}(1-u^2)\mathbbm{1}_{\{|u|\leq 1\}}$
+Gaussian            | $K(u) = \frac{1}{\sqrt{2\pi}}e^{-\frac{u^2}{2}}$
+Triangle            | $K(u) = (1-|u|)\mathbbm{1}_{\{|u|\leq 1\}}$
+Rectangle           | $K(u) = \frac{1}{2}\mathbbm{1}_{\{|u|\leq 1\}}$
+
+```{r, echo=FALSE, fig.height=3}
+par(mfrow = c(1, 2))
+plot(density(Z, kernel = "rectangular",bw=0.1), main = "Rectangular kernel",col="blue", xlab='X')
+lines(density(Z, kernel = "rectangular",bw=0.2),col="red")
+lines(density(Z, kernel = "rectangular",bw=0.3),col="green")
+legend('topleft', c('bw=0.1', 'bw=0.2', 'bw=0.3') , lty=1, col=c('blue', 'red', 'green'), bty='n', cex=.75)
+plot(density(Z, kernel = "epanechnikov", bw=0.1), main = "Epanechnikov's kernal",col="blue" , xlab='X')
+lines(density(Z, kernel = "epanechnikov", bw=0.2),col="red")
+lines(density(Z, kernel = "epanechnikov", bw=0.3),col="green")
+legend('topleft', c('bw=0.1', 'bw=0.2', 'bw=0.3') , lty=1, col=c('blue', 'red', 'green'), bty='n', cex=.75)
+par(mfrow = c(1, 2))
+plot(density(Z, kernel = "triangular", bw=0.1), main = "Triangular kernal",col="blue", xlab='X')
+lines(density(Z, kernel = "triangular",bw=0.2),col="red")
+lines(density(Z, kernel = "triangular",bw=0.3),col="green")
+legend('topleft', c('bw=0.1', 'bw=0.2', 'bw=0.3') , lty=1, col=c('blue', 'red', 'green'), bty='n', cex=.75)
+plot(density(Z, kernel = "gaussian", bw=0.1), main = "Gaussian kernal",col="blue" , xlab='X')
+lines(density(Z, kernel = "gaussian", bw=0.2),col="red")
+lines(density(Z, kernel = "gaussian",bw=0.3),col="green")
+legend('topleft', c('bw=0.1', 'bw=0.2', 'bw=0.3') , lty=1, col=c('blue', 'red', 'green'), bty='n', cex=.75)
+```
+
+$\textbf{Corollary}$: One can see that the rectangular KDE consists of noise for all values of $h$, whenever the other three kernels are giving smoother results. As a common tendention one can see that $h =  0.3$ is visualy more appropriate for all the kernels.  
+
+## 3. Chosing optimal $h$ by minimazing $J(h)$.
+
+We consider the following functional $$ J(h) = \mathbb{E}\int(\hat{p}_{n,h}-p(x))^2\,dx-\int p^2(x)\,dx. $$ One can notice that last term of the functional $J(h)$ is a constant therefore one can rewrite $$ \arg\!\min_{h>0} J(h) = \arg\!\min_{h>0} \mathbb{E}\Big[\int\hat{p}_{n,h}^2\,dx - \int2\hat{p}_{n,h}p(x)\,dx\Big]$$
+Let $\tilde{J}(h) = \mathbb{E}\Big[\int\hat{p}_{n,h}^2\,dx - \int2\hat{p}_{n,h}p(x)\,dx\Big]$ we propose an unbiased estimator of $\tilde{J}(h)$ as it follows $$ CV = \int\hat{p}_{n,h}^2\,dx - \frac{2}{n}\sum\limits_{j=1}^{n}\hat{p}_{n,h}^{-j}(X_j) $$ where $\hat{p}_{n,h}^{-j}$ is a kernel density estimation of $p(x)$ without observation $X_j$ clearly, $$ \hat{p}_{n,h}^{-j}(x) = \frac{1}{(n-1)h}\sum\limits_{i\neq j}K\Big(\frac{x-X_i}{h}\Big)$$ this technique is known as cross-validation, see for instance [@tsybakov08, pp. 27-31]. Finally one can obtain an optimal $h$ as $$\hat{h} = \arg\!\min_{h>0} \int\hat{p}_{n,h}^2\,dx - \frac{2}{n}\sum\limits_{j=1}^{n}\hat{p}_{n,h}^{-j}(X_j) $$. 
+
+
+```{r, echo=FALSE, cache=TRUE}
+ J = function(h){
+  Phat = Vectorize(function(x) density(Z, from = x, to = x, n = 1, bw = h)$y)
+  Phati = Vectorize(function(i) density(Z[-i], from = Z[i], to = Z[i], n = 1, bw = h)$y)
+  F = Phati(1:length(Z))
+  return(integrate(function(x) Phat(x)^2, -8, 8)$value - 2 * mean(F))
+}
+
+argmin1 <- optimize(J, interval=c(0.0001, 2))
+argmin1
+```
+
+We obtained that $\hat{h}_1 =$ `r formatC(argmin1$minimum, digits = 3) `
+
+## 3.1. Transformed data
+
+In this section we study an effect of two types of transformation of data. Firstly we consider a translated data, for this task we move our observations by 800. And since the support of $p(x)$ was not changed we expect to recieve the same result as in previous section.
+
+```{r, echo=FALSE, cache=TRUE}
+Zmoved = Z + 800
+Jmoved = function(h){
+  Phat = Vectorize(function(x) density(Zmoved, from = x, to = x, n = 1, bw = h)$y)
+  Phati = Vectorize(function(i) density(Zmoved[-i], from = Zmoved[i], to = Zmoved[i], n = 1, bw = h)$y)
+  F = Phati(1:length(Zmoved))
+  return(integrate(function(x) Phat(x)^2, 792, 808)$value - 2 * mean(F))
+}
+```
+
+```{r, echo=FALSE, cache=TRUE}
+argmin2 <- optimize(Jmoved, interval=c(0.001, 2))
+argmin2
+```
+
+We obtained that $\hat{h}_2 =$ `r formatC(argmin2$minimum, digits = 3) `. One can notice that $\hat{h}_1 \approx \hat{h}_2.$
+
+
+Secondly we consider scaled data, for this purpose we devide our observations by $5$. Since the support of $p(x)$ was changed we expect to recieve $h$ five times smaller then in previous section.
+
+```{r, echo=FALSE, cache=TRUE}
+Zscaled = Z / 5
+ Jscaled = function(h){
+  Phat = Vectorize(function(x) density(Zscaled, from = x, to = x, n = 1, bw = h)$y)
+  Phati = Vectorize(function(i) density(Zscaled[-i], from = Zscaled[i], to = Zscaled[i], n = 1, bw = h)$y)
+  F = Phati(1:length(Zscaled))
+  return(integrate(function(x) Phat(x)^2, -1.6, 1.6)$value - 2 * mean(F))
+}
+```
+
+```{r, echo=FALSE, cache=TRUE}
+argmin3 <- optimize(Jscaled, interval=c(0.001, 5))
+argmin3
+```
+
+We obtained that $\hat{h}_3 =$ `r formatC(argmin3$minimum, digits = 3) `. One can notice that $\hat{h}_1 \approx \hat{h}_2 \approx 5\hat{h}_3$, which is in total agreement with our expectations.
+
+$\textbf{Corollary}$: A translation is not changing the optimal value of $h$, however a rescaling by $m$ (i.e. $X^{'} = \frac{X}{m}$) changing the optimal value by $m$ times.
+
+
+## 4. Working with real data
+
+For this part we consider a dataset Galaxies which consists of a numeric vector of velocities in km/sec of $82$ galaxies from $6$ well-separated conic sections of an unfilled survey of the Corona Borealis region. Multimodality in such surveys is evidence for voids and superclusters in the far
+universe.
+
+```{r, echo=FALSE, cache=FALSE}
+par(mfrow = c(1, 1))
+library(MASS)
+#boxplot(galaxies)
+gala = (galaxies - mean(galaxies)) / sqrt(var(galaxies))
+hist(gala, freq = FALSE, xlab='Observation', main='Hist VS KDE')
+lines(density(gala)$x, density(gala)$y, col = "green")
+legend('topleft', c('KDE') , lty=1, col=c('green'), bty='n', cex=.75)
+```
+
+$\textbf{Comparing the estimators}$: We use the histogram if we want to describe our sample, and the kernel density estimator (KDE) if we want to describe the hypothesized underlying distribution. Since we don't have any knowledge and assumptions on distribution of tje Galaxies dataset we would rather use histogram than KDE.
+
+## References
