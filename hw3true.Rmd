@@ -1,0 +1,489 @@
+---
+title: "linearregrassion"
+author: "Evgenii Chzhen"
+date: "16 апреля 2015 г."
+output: html_document
+---
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(lattice)
+library(MASS)
+library(lmtest)
+library(sandwich)
+library(mvtnorm)
+library(car)
+
+mycol <- rgb(30,30,30,100,maxColorValue=255)
+
+mycoeftest <- function(m, EstType){
+  beta  <- coef(m)[-1]
+  Vbeta <- vcovHC(m, type = EstType)[-1,-1]
+  D <- diag(1 / sqrt(diag(Vbeta)))
+  t <- D %*% beta
+  Cor <- D %*% Vbeta %*% t(D)
+  m.df <- length(m$residuals) - length(beta)
+  p_adj <- sapply(abs(t), function(x) 1-pmvt(-rep(x, length(beta)), rep(x, length(beta)), corr = Cor, df = m.df))
+  c(NaN, p_adj)
+}
+
+addtrend <- function(x, y){
+  y <- y[order(x)]
+  x <- sort(x)  
+  lines(x, predict(loess(y ~ x)), col = "red")
+}
+```
+**Постановка задачи:**
+Данные собраны из переписи населения США 1990 года, отчёта ФБР о преступности за 1995 год и опроса сотрудников полиции LEMAS за 1990 год. По 2215 округам собрана статистика преступлений и 125 демографических показателей. Построить функцию, оценивающую абсолютное число автомобильных краж по демографическим показателям, дать интерпретацию коэффициентов модели.
+
+```{r, warning=FALSE, cache=TRUE, echo=FALSE, message=FALSE}
+library(gdata)
+library(AER)
+library(MASS)
+library(lmtest)
+library(sandwich)
+crimesInit = read.csv ("cr1.csv", header = TRUE, sep = ";")
+crimesInit[ crimesInit == '?' ] = NA
+crimesInit[ crimesInit == '-' ] = NA
+dependentVar <- as.numeric(as.character(crimesInit$autoTheft))
+crimes <- data.frame(dependentVar, crimesInit[,2:125], stringsAsFactors = FALSE)
+crimes <- na.omit(crimes)
+dependentVar <- as.numeric(as.character(crimes$dependentVar))
+#crimes <- crimes[,2:125]
+col_names <- names(crimes[,2:125])
+```
+
+В наличии имеется очень много признаков, для начала проведем корреляционный анализ и выделим признаки, которые имеют коэффициент корреляции с зависимой переменной больше .4 по модулю. В итоге выделяются следующие переменные:
+
+```{r, echo=FALSE}
+correlations <- lapply(crimes[,col_names], function(x) cor.test(dependentVar, x)$estimate)
+correlated_names = names(correlations[correlations > .4 | correlations < -.4])
+correlated_names
+```
+
+Попарные диаграммы рассеяния полученных в ходе предыдущего анализа признаков
+
+```{r, echo=FALSE}
+panel.hist <- function(x, ...){
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(usr[1:2], 0, 1.5) )
+    h <- hist(x, plot = FALSE)
+    breaks <- h$breaks; nB <- length(breaks)
+    y <- h$counts; y <- y/max(y)
+    rect(breaks[-nB], 0, breaks[-1], y, col = "red", ...)
+}
+
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...){
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(0, 1, 0, 1))
+    r <- abs(cor(x, y))
+    txt <- format(c(r, 0.123456789), digits = digits)[1]
+    txt <- paste0(prefix, txt)
+    if(missing(cex.cor)) cex.cor <- 0.8/strwidth(txt)
+    text(0.5, 0.5, txt, cex = cex.cor * r)
+}
+
+panel.dots <- function(x, y, ...){
+  points(x, y, pch=19, col=mycol)
+}
+df <- data.frame(dependentVar, crimes[,correlated_names])
+par(mfrow=c(2,2))
+pairs(df[,c(1, 2:6)], diag.panel=panel.hist, 
+      upper.panel = panel.cor, lower.panel = panel.dots)
+pairs(df[,c(1, 7:11)], diag.panel=panel.hist, 
+      upper.panel = panel.cor, lower.panel = panel.dots)
+pairs(df[,c(1, 12:16)], diag.panel=panel.hist, 
+      upper.panel = panel.cor, lower.panel = panel.dots)
+```
+
+Заметим, что переменные population, numbUrban, numUnderPoverty, NumKidsBornNeverMarried имеют коэффициент корреляции близкий к единицы, поэтому откажемся от этих переменных, оставляя только переменную population. LemasSwornFt и LemasSwFieldsOps имеют коэффициент корреляции 1, оставим только LemasSwFieldsOps. Так же поступим с переменными NumStreet и NumInShelters, оставляя только переменную NumInShelters.
+
+В итоге имеем следующий набор переменных
+
+```{r, echo=FALSE}
+corr_names <- c("dependentVar", "population", "NumImmig", "HousVacant", "NumInShelters", "LemasTotalReq", "LemasSwFTFieldOps", "OfficAssgnDrugUnits", "PctUsePubTrans", "PolicCars", "PolicOperBudg" )
+corr_names
+data <- data.frame(crimes[,corr_names])
+pairs(data, diag.panel=panel.hist, 
+      upper.panel = panel.cor, lower.panel = panel.dots)
+```
+
+
+
+Отношение $\frac{max(y)}{min(y)}$ = `r max(dependentVar)/min(dependentVar)` поэтому целесообразно провести преобразование.
+Проведем преобразования Бокса-Кокса
+Возьмём $\lambda=0.2$
+
+```{r, echo=FALSE}
+gm_mean = function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+par(mfrow=c(1,1))
+boxcox(lm(dependentVar~., data=crimes), lambda=seq(0,1,by=.1))
+lambda = 0.2
+gm <- gm_mean(dependentVar)
+data$dependentVar <- (dependentVar^lambda - 1)/(lambda*gm^(lambda-1))
+```
+
+**Поcтроение моделей:**
+
+### Модель 1
+Сперва построим модель, использую все переменные.
+
+```{r, echo=FALSE}
+m0 <- lm(dependentVar ~ ., data=data)
+summary(m0)
+```
+Её остатки:
+
+Критерий     | p  
+----------   | ---------
+Шапиро-Уилка | `r shapiro.test(residuals(m0))$p.value`
+Уилкоксона   | `r wilcox.test(residuals(m0))$p.value`
+Бройша-Пагана| `r bptest(m0)$p.value`
+
+Визуализация
+
+```{r, echo=FALSE}
+par(mfrow=c(3,2))
+qqnorm(residuals(m0))
+qqline(residuals(m0), col="red")
+grid()
+plot(1:dim(data)[1], rstandard(m0), xlab="i", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(1:dim(data)[1], rstandard(m0))
+grid()
+plot(fitted(m0), rstandard(m0), xlab="Fitted values", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(fitted(m0), rstandard(m0))
+grid()
+plot(data$population, rstandard(m0), xlab="population", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$population, rstandard(m0))
+grid()
+plot(data$NumImmig, rstandard(m0), xlab="immigrants", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$NumImmig, rstandard(m0))
+grid()
+plot(data$PolicOperBudg, rstandard(m0), xlab="cop's budget", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$PolicOperBudg, rstandard(m0))
+grid()
+par(mfrow=c(1,2))
+plot(data$HousVacant, rstandard(m0), xlab="HousVacant", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$HousVacant, rstandard(m0))
+grid()
+plot(data$PolicCars, rstandard(m0), xlab="PolicCars", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$PolicCars, rstandard(m0))
+grid()
+```
+
+
+### Модель 2
+Заметим, что по многим переменным имеются выбросы, попробуеми их удалить и заного построить модель.
+
+```{r, echo=FALSE}
+data <- data[data$population < 3e+05 & data$NumImmig < 40000 & data$PolicOperBudg < 4e+07 & data$HousVacant < 14000 & data$PolicCars < 400 & data$LemasSwFTFieldOps<500 & data$PctUsePubTrans < 30,]
+```
+
+
+```{r, echo=FALSE}
+m1 <- lm(dependentVar ~ ., data=data)
+summary(m1)
+beta <- coef(m1)
+Vbeta <- vcov(m1)
+D <- diag(1 / sqrt(diag(Vbeta)))
+t <- D %*% beta
+Cor <- D %*% Vbeta %*% t(D)
+library("mvtnorm")
+m1.df <- nrow(data) - length(beta) - 1
+p_adj <- sapply(abs(t), function(x) 1-pmvt(-rep(x, length(beta)), rep(x, length(beta)), corr = Cor, df = m1.df))
+m1$coefficients <- cbind(m1$coefficients, p_adj)
+print(m1)
+```
+
+некоторые коэффициенты существенно изменились, следовательно, удаление влиятельных наблюдений имело смысл.
+Её остатки:
+
+Критерий     | p  
+----------   | ---------
+Шапиро-Уилка | `r shapiro.test(residuals(m1))$p.value`
+Уилкоксона   | `r wilcox.test(residuals(m1))$p.value`
+Бройша-Пагана| `r bptest(m1)$p.value`
+
+Гипотеза о нормальности остатков не отвергается. Остатки несмещены. Гипотеза о гомоскедастичности не отвергается.
+
+Визуализация
+
+```{r, echo=FALSE}
+par(mfrow=c(3,2))
+qqnorm(residuals(m1))
+qqline(residuals(m1), col="red")
+grid()
+plot(1:dim(data)[1], rstandard(m1), xlab="i", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(1:dim(data)[1], rstandard(m1))
+grid()
+plot(fitted(m1), rstandard(m1), xlab="Fitted values", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(fitted(m1), rstandard(m1))
+grid()
+plot(data$population, rstandard(m1), xlab="population", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$population, rstandard(m1))
+grid()
+plot(data$NumImmig, rstandard(m1), xlab="immigrants", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$NumImmig, rstandard(m1))
+grid()
+plot(data$PolicOperBudg, rstandard(m1), xlab="cop's budget", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$PolicOperBudg, rstandard(m1))
+grid()
+par(mfrow=c(1,2))
+plot(data$HousVacant, rstandard(m1), xlab="HousVacant", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$HousVacant, rstandard(m1))
+grid()
+plot(data$PolicCars, rstandard(m1), xlab="PolicCars", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$PolicCars, rstandard(m1))
+grid()
+```
+
+Проверим какие взаимодействия между переменными могут улучшить модель
+```{r, echo=FALSE}
+add1(m1, ~ .^2, test="F")
+```
+
+
+### Модель 3
+Добавим взаимодействие насление и свободное жилье
+
+```{r, echo=FALSE}
+mvtmult <- function(m1){
+  beta <- coef(m1)
+  Vbeta <- vcov(m1)
+  D <- diag(1 / sqrt(diag(Vbeta)))
+  t <- D %*% beta
+  Cor <- D %*% Vbeta %*% t(D)
+  library("mvtnorm")
+  m1.df <- nrow(data) - length(beta) - 1
+  p_adj <- sapply(abs(t), function(x) 1-pmvt(-rep(x, length(beta)), rep(x, length(beta)), corr = Cor, df = m1.df))
+  m1$coefficients <- cbind(m1$coefficients, p_adj)
+  print(m1)
+}
+m2 <- lm(dependentVar ~ population + NumImmig + HousVacant+ NumInShelters+ LemasTotalReq+LemasSwFTFieldOps+OfficAssgnDrugUnits+PctUsePubTrans+PolicCars+PolicOperBudg+population*HousVacant, data=data)
+summary(m2)
+```
+
+Значимость коэффициентов с поправкой на множественность
+
+```{r, echo=FALSE}
+mvtmult(m2)
+```
+
+
+Остатки модели:
+
+Критерий     | p  
+----------   | ---------
+Шапиро-Уилка | `r shapiro.test(residuals(m2))$p.value`
+Уилкоксона   | `r wilcox.test(residuals(m2))$p.value`
+Бройша-Пагана| `r bptest(m2)$p.value`
+
+Гипотеза о нормальности остатков не отвергается. Остатки несмещены. Гипотеза о гомоскедастичности не отвергается.
+
+Сравним с предыдущей моделью по критерию Фишера
+```{r, echo=FALSE}
+anova(m1, m2)
+```
+Модель 3 получилась сушественно лучше модели 2
+
+Визуализация
+
+```{r, echo=FALSE}
+par(mfrow=c(3,2))
+qqnorm(residuals(m2))
+qqline(residuals(m2), col="red")
+grid()
+plot(1:dim(data)[1], rstandard(m2), xlab="i", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(1:dim(data)[1], rstandard(m2))
+grid()
+plot(fitted(m2), rstandard(m2), xlab="Fitted values", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(fitted(m2), rstandard(m2))
+grid()
+plot(data$population, rstandard(m2), xlab="population", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$population, rstandard(m2))
+grid()
+plot(data$NumImmig, rstandard(m2), xlab="immigrants", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$NumImmig, rstandard(m2))
+grid()
+plot(data$PolicOperBudg, rstandard(m2), xlab="cop's budget", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$PolicOperBudg, rstandard(m2))
+grid()
+par(mfrow=c(1,2))
+plot(data$HousVacant, rstandard(m2), xlab="HousVacant", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$HousVacant, rstandard(m2))
+grid()
+plot(data$PolicCars, rstandard(m2), xlab="PolicCars", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$PolicCars, rstandard(m2))
+grid()
+```
+
+Значимыми переменными являются population, NumImmig, HousVacant, PctUsePubTrans, population:HousVacant
+
+### Модель 4
+
+Посроим модель используя только эти признаки
+
+```{r, echo=FALSE}
+m3 <- lm(dependentVar ~ population + NumImmig + HousVacant + PctUsePubTrans + population*HousVacant , data=data)
+summary(m3)
+```
+
+
+Остатки модели:
+
+Критерий     | p  
+----------   | ---------
+Шапиро-Уилка | `r shapiro.test(residuals(m3))$p.value`
+Уилкоксона   | `r wilcox.test(residuals(m3))$p.value`
+Бройша-Пагана| `r bptest(m3)$p.value`
+
+Гипотеза о нормальности остатков не отвергается. Остатки несмещены. Гипотеза о гомоскедастичности не отвергается.
+
+Сравним с предыдущей моделью по критерию Фишера
+```{r, echo=FALSE}
+anova(m2, m3)
+```
+Модель 4 не хуже модели 3
+
+
+Значимость коэффициентов с поправкой на множественность
+
+```{r}
+mvtmult(m3)
+```
+
+
+Визуализация
+
+```{r, echo=FALSE}
+par(mfrow=c(3,2))
+qqnorm(residuals(m3))
+qqline(residuals(m3), col="red")
+grid()
+plot(1:dim(data)[1], rstandard(m3), xlab="i", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(1:dim(data)[1], rstandard(m3))
+grid()
+plot(fitted(m3), rstandard(m3), xlab="Fitted values", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(fitted(m3), rstandard(m3))
+grid()
+plot(data$population, rstandard(m3), xlab="population", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$population, rstandard(m3))
+grid()
+plot(data$HousVacant, rstandard(m3), xlab="HousVacant", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$HousVacant, rstandard(m3))
+grid()
+plot(data$LemasSwFTFieldOps , rstandard(m3), xlab="Publick transport usage", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data$LemasSwFTFieldOps , rstandard(m3))
+grid()
+```
+
+
+
+### Модель 5
+Попробуем удалить наблюдения с растоянием Кука больше .015
+
+```{r, echo=FALSE}
+par(mfrow=c(1,2))
+yhat <- predict(m3, type="response")
+plot(yhat, cooks.distance(m3), pch=20, xlab="Estimated conditional mean", ylab="Cook's distance")
+lines(c(0,5000), c(0.015,0.015), col="red", lwd=2)
+plot(data$dependentVar, cooks.distance(m3), pch=20, xlab="Estimated conditional mean", ylab="Cook's distance")
+lines(c(0,5000), c(0.015,0.015), col="red", lwd=2)
+data1 <- data[cooks.distance(m3)<0.015,]
+m4 <- lm(dependentVar ~ population + NumImmig + HousVacant + LemasSwFTFieldOps + PctUsePubTrans +population*HousVacant , data = data1)
+summary(m4)
+```
+
+
+```{r, echo=FALSE}
+res <- cbind(coefficients(m3), coefficients(m4))
+colnames(res) <- c("All data", "Filtered data")
+res
+```
+некоторые коэффициенты существенно изменились, следовательно, удаление влиятельных наблюдений имело смысл.
+
+Остатки модели:
+
+Критерий     | p  
+----------   | ---------
+Шапиро-Уилка | `r shapiro.test(residuals(m4))$p.value`
+Уилкоксона   | `r wilcox.test(residuals(m4))$p.value`
+Бройша-Пагана| `r bptest(m4)$p.value`
+
+Гипотеза о нормальности остатков не отвергается. Остатки несмещены. Гипотеза о гомоскедастичности не отвергается.
+
+
+Значимость коэффициентов с поправкой на множественность
+
+```{r, echo=FALSE}
+mvtmult(m4)
+```
+
+Визуализация
+
+```{r, echo=FALSE}
+par(mfrow=c(3,2))
+qqnorm(residuals(m4))
+qqline(residuals(m4), col="red")
+grid()
+plot(1:dim(data1)[1], rstandard(m4), xlab="i", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(1:dim(data1)[1], rstandard(m4))
+grid()
+plot(fitted(m4), rstandard(m4), xlab="Fitted values", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(fitted(m4), rstandard(m4))
+grid()
+plot(data1$population, rstandard(m4), xlab="population", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data1$population, rstandard(m4))
+grid()
+plot(data1$HousVacant, rstandard(m4), xlab="HousVacant", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data1$HousVacant, rstandard(m4))
+grid()
+plot(data1$LemasSwFTFieldOps , rstandard(m4), xlab="Publick transport usage", ylab="Standardized residuals", col=mycol, pch=19)
+addtrend(data1$LemasSwFTFieldOps , rstandard(m4))
+grid()
+```
+
+
+
+
+Необходимсоти добавлять квадраты переменных не наблюдается, остановимся на этой модели
+
+## Результат
+Итоговая модель (№5) объясняет `r round(100*summary(m4)$r.squared)`% вариации преобразования Бокса-Кокса отклика:
+
+Итоговая модель
+
+```{r, echo=FALSE}
+par(mfrow=c(1,1))
+yhat <- predict(m4, type="response")
+plot(data1$dependentVar, yhat, col=rgb(200,100,100,30,maxColorValue=255), pch=20, ylab="Estimated", xlab="Real Number")
+grid()
+```
+
+##Выводы
+
+В работе проведен отбор признаков с учетом поправки на множественность. Учтены степени количественных признаков и перекрестные произведения признаков.
+Все модели, которые были построены в ходе эксперимента, имели остатки, для которых гипотезы нормальности, гомоскедастичности и несмешенности НЕ отвергались.
+Модель построена по преобразованной переменной, что позволило удовлетворить предположению нормальности.
+Модель построена не по полной выборке, в ходе работы было удалено множество выбросов.
+В итоговую модель включены следующие количественные признаки:
+
+1. population - Население в районе
+
+2. NumImmig - количество иммигрантов
+
+3. HousVacant - количество свободного жилья
+
+4. LemasSwFTFieldOps - число полицейских работающих на улицах
+
+5. PctUsePubTrans - количество использования публичного транспорта на душу населения
+
+Все эти переменные имеют достаточно естественную интепретацию: при фиксировании всех регрессоров, кроме одного из вышеперечисленных при увеличении нефиксируемого на 1 значение целевой функции меняется на коэффициент при нефиксированной переменной, все коэффициенты и доверительные интервалы приведены ниже.
+
+Так же в модель включено взаимодействие населения и свободного жилья, при увеличении населения, количество свободного жилья характерно уменьшается и наоборот.
+
+
+```{r, echo=FALSE}
+coefficients(m4)[-1]
+confint(m4)[-1,]
+```
