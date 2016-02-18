@@ -1,1 +1,1 @@
-Estimation by projection
+Kernel estimators
